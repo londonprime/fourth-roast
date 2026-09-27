@@ -635,6 +635,319 @@ $('when').min=now.toISOString().slice(0,16);
 $('f').onsubmit=e=>{e.preventDefault();const f=e.target,o=$('bm');
   if(!f.name.value.trim()||!phoneOk(f.phone.value))return show(o,'Укажите имя и телефон (минимум 10 цифр).',1);
   const d=new Date(f.when.value);
+  if(!f.when.value||isNaN(d)||d<new Date())return show(o,'Выберите время в будущем.',1);
+  const h=d.getHours(),wk=d.getDay()%6===0;
+  if(h<(wk?10:8)||h>=(wk?22:21))return show(o,`В этот день мы работаем ${wk?'с 10:00 до 22:00':'с 8:00 до 21:00'}.`,1);
+  const all=store.get('bookings')||[];all.push({name:f.name.value,phone:f.phone.value,when:f.when.value,n:f.n.value});store.set('bookings',all);
+  store.set('me',{name:f.name.value,phone:f.phone.value});
+  show(o,`Заявка принята: ${d.toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}, гостей: ${f.n.value}. Нажмите кнопку ниже, чтобы мы точно её увидели.`);
+  wa(o,'Бронь столика: '+f.name.value+', гостей: '+f.n.value+', '+d.toLocaleString('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})+', тел. '+f.phone.value);f.reset();};
+const me=store.get('me');if(me){for(const f of [$('f'),$('of')]){f.name.value=me.name;f.phone.value=me.phone;}}
+$('cp').onclick=async e=>{try{await navigator.clipboard.writeText('Садовая, 12');e.target.textContent='Скопировано';}catch(x){e.target.textContent='Садовая, 12';}};
+let rot=0;$('th').onclick=()=>{const r=document.documentElement,d=r.dataset.theme?r.dataset.theme==='dark':matchMedia('(prefers-color-scheme:dark)').matches;r.dataset.theme=d?'light':'dark';rot+=180;$('th').style.transform='rotate('+rot+'deg)';};
+(function status(){const d=new Date(),wk=d.getDay()%6===0,h=d.getHours()+d.getMinutes()/60,o=wk?10:8,c=wk?22:21,on=h>=o&&h<c,el=$('st');
+  el.className='st'+(on?' on':'');el.lastChild.textContent=on?`Открыто до ${c}:00`:`Сейчас закрыто, откроемся в ${h<o?o:([5,6].includes(d.getDay())?10:8)}:00`;})();
+cart=store.get('cart')||{};for(const k in cart)if(!M[k]||!(cart[k]>0))delete cart[k];
+(function(){
+  const N=6,st=$('stamps'),btn=$('stampBtn'),lm=$('lm');
+  let data=store.get('loyalty')||{count:0,last:0};
+  function today(t){return new Date(t).toDateString();}
+  function draw(){
+    st.innerHTML='';
+    const inCycle=data.count%N;
+    const showFull=data.count>0 && inCycle===0;
+    for(let i=0;i<N;i++){
+      const filled=showFull?true:i<inCycle;
+      const d=document.createElement('div');
+      d.className='stamp'+(filled?' on':'');
+      d.textContent=filled?'☕':'';
+      st.appendChild(d);
+    }
+  }
+  function msg(){
+    if(data.count>0 && data.count%N===0){lm.textContent='Собрано 6 штампов — следующий кофе бесплатный! Покажите это баристе.';}
+    else{const left=N-(data.count%N);lm.textContent=left===N?'Штампов пока нет, начните собирать.':`Осталось ${left} до бесплатного кофе.`;}
+    lm.style.display='block';lm.className='msg';
+  }
+  draw();msg();
+  btn.onclick=function(){
+    const now=Date.now();
+    if(data.count>0 && today(data.last)===today(now)){
+      lm.textContent='Штамп на сегодня уже поставлен, приходите завтра.';lm.className='msg err';lm.style.display='block';return;
+    }
+    if(data.count>0 && data.count%N===0)data.count=0;
+    data.count++;data.last=now;store.set('loyalty',data);
+    draw();
+    if(!calm){const cells=st.children;const idx=(data.count-1)%N;if(cells[idx])cells[idx].classList.add('pop');}
+    msg();
+  };
+})();
+(function(){
+  const Q=[
+    {q:'Какое настроение сегодня?',a:[
+      {t:'Нужна бодрость прямо сейчас',w:{crisp:2}},
+      {t:'Хочется чего-то уютного',w:{sweet:2}},
+      {t:'Просто пить что-то вкусное не спеша',w:{soft:1,sweet:1}}]},
+    {q:'Молоко или без?',a:[
+      {t:'Люблю с молоком',w:{sweet:2}},
+      {t:'Только чёрный',w:{crisp:2}},
+      {t:'Можно вообще без кофе',w:{soft:3}}]},
+    {q:'Сладкое или нет?',a:[
+      {t:'Люблю сладкое',w:{sweet:2}},
+      {t:'В меру',w:{soft:1}},
+      {t:'Совсем без сахара',w:{crisp:2}}]}];
+  const RES={
+    crisp:{n:'Фильтр-кофе',d:'Чёрный, бодрящий, раскрывает вкус зерна.'},
+    sweet:{n:'Какао с маршмеллоу',d:'Уютное, сладкое, для спокойного вечера.'},
+    soft:{n:'Домашний лимонад',d:'Лёгкое и освежающее, без кофеина.'}};
+  let i=0,score={crisp:0,sweet:0,soft:0};
+  const box=$('qbox');
+  function dots(){return `<div class="qdots">${Q.map((_,k)=>`<i class="${k<=i?'on':''}"></i>`).join('')}</div>`;}
+  function step(){
+    box.innerHTML=`<div class="qstep">${dots()}<p style="font-weight:500">${Q[i].q}</p><div class="qopts">${Q[i].a.map((a,k)=>`<button data-k="${k}">${a.t}</button>`).join('')}</div></div>`;
+  }
+  function result(){
+    const key=Object.entries(score).sort((a,b)=>b[1]-a[1])[0][0];
+    const r=RES[key];
+    const idx=M.findIndex(x=>x.n===r.n);
+    box.innerHTML=`<div class="qstep qresult"><span style="color:var(--mute)">Вам подойдёт</span><b>${r.n}</b><p style="color:var(--mute);margin:0 0 16px">${r.d}</p>
+      <div class="row" style="justify-content:center"><button class="btn" id="qadd">Добавить в заказ</button><button class="btn alt" id="qagain">Пройти ещё раз</button></div></div>`;
+    $('qadd').onclick=e=>{cart[idx]=(cart[idx]||0)+1;bar();pop(e.target,1.06);};
+    $('qagain').onclick=()=>{i=0;score={crisp:0,sweet:0,soft:0};step();};
+  }
+  step();
+  box.addEventListener('click',e=>{
+    const k=e.target.dataset.k;if(k===undefined)return;
+    const w=Q[i].a[k].w;for(const key in w)score[key]+=w[key];
+    i++;if(i<Q.length)step();else result();
+  });
+})();
+tabs();list();bar();
+if(!calm)document.querySelectorAll('#faq details').forEach(function(d){
+  const sum=d.querySelector('summary'),dw=d.querySelector('.dw');
+  let anim=null;
+  sum.addEventListener('click',function(e){
+    e.preventDefault();
+    if(anim)anim.cancel();
+    if(d.open){
+      const h=dw.scrollHeight;
+      anim=dw.animate([{height:h+'px'},{height:'0px'}],{duration:220,easing:'ease'});
+      anim.onfinish=()=>{d.open=false;};
+    }else{
+      d.open=true;
+      const h=dw.scrollHeight;
+      anim=dw.animate([{height:'0px'},{height:h+'px'}],{duration:260,easing:'cubic-bezier(.2,.8,.2,1)'});
+      anim.onfinish=()=>{dw.style.height='auto';};
+    }
+  });
+});
+if('IntersectionObserver' in window){const io=new IntersectionObserver(es=>es.forEach(x=>{if(x.isIntersecting){x.target.classList.add('in');io.unobserve(x.target);}}),{threshold:.15});
+document.querySelectorAll('#reviews .card,#about .card,#book form').forEach((el,i)=>{el.classList.add('rv');el.style.transitionDelay=(i%3)*90+'ms';io.observe(el);});}
+document.querySelectorAll('.n').forEach(el=>{const to=+el.dataset.to;if(calm||!('IntersectionObserver' in window))return;
+const o=new IntersectionObserver(es=>{if(es[0].isIntersecting){o.disconnect();const t0=performance.now();(function f(t){const k=Math.min((t-t0)/1200,1);el.textContent=Math.round(to*(1-Math.pow(1-k,3)));if(k<1)requestAnimationFrame(f);})(t0);}});o.observe(el);});
+</script>
+</body>
+</html>
+-rows:0fr;transition:grid-template-rows .3s ease;border-top:0 solid var(--line)}
+.mnav>div,.mnav{overflow:hidden}
+.mnav.open{grid-template-rows:1fr;border-top-width:1px}
+.mnav a{display:block;padding:14px 20px;color:var(--ink);text-decoration:none;font-weight:500;border-top:1px solid var(--line)}
+.mnav a:first-child{border-top:0}
+@media (max-width:520px){.hide{display:none}header b{font-size:13px}header .wrap{gap:10px}.mh{display:block}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation:none!important;transition:none!important}.rv{opacity:1!important;transform:none!important}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+<b>Четвёртая обжарка</b>
+<a href="#menu">Меню</a><a class="hide" href="#quiz">Подбор</a><a class="hide" href="#loyalty">Карта</a><a href="#book">Столик</a>
+<button class="ic" id="th" aria-label="Сменить тему">◐</button>
+<button class="ic" id="shareBtn" aria-label="Поделиться">↗</button>
+<button class="ic mh" id="burger" aria-label="Открыть меню" aria-expanded="false">☰</button>
+</div>
+<nav id="mnav" class="mnav"><div>
+<a href="#menu">Меню</a><a href="#us">О нас</a><a href="#quiz">Подбор напитка</a><a href="#loyalty">Карта лояльности</a><a href="#book">Бронь столика</a>
+</div></nav>
+</header>
+
+<main class="wrap">
+<div class="hero">
+<div class="st" id="st"><i></i><span>Проверяем часы работы…</span></div>
+<h1>Кофе, который обжарили на этой неделе</h1>
+<p>Небольшая кофейня на Садовой, 12. Свои зёрна, десерты из соседней пекарни и место, где спокойно работается.</p>
+<div class="row"><a class="btn" href="#menu">Заказать с собой</a><a class="btn alt" href="#book">Забронировать столик</a></div>
+<svg class="cup" viewBox="0 0 120 110" width="120" height="110" aria-hidden="true">
+<path class="steam" d="M45 34c-6-8 6-12 0-22"/><path class="steam s2" d="M60 34c-6-8 6-12 0-22"/><path class="steam s3" d="M75 34c-6-8 6-12 0-22"/>
+<path d="M28 44h64v22a30 30 0 0 1-30 30h-4a30 30 0 0 1-30-30z" fill="var(--acc)"/>
+<path d="M92 50h6a10 10 0 0 1 0 22h-8" fill="none" stroke="var(--acc)" stroke-width="6" stroke-linecap="round"/>
+<ellipse cx="60" cy="100" rx="42" ry="6" fill="var(--line)"/></svg>
+</div>
+
+<section id="menu">
+<h2>Меню</h2>
+<input type="search" id="msearch" class="msearch" placeholder="Найти в меню, например «чизкейк»" aria-label="Поиск по меню">
+<div class="tabs" id="tabs" role="tablist"></div>
+<ul class="menu" id="list"></ul>
+<p class="msg" id="noRes" role="status" style="display:none">Ничего не нашли. Попробуйте другое слово.</p>
+</section>
+
+<section id="us">
+<h2>О нас</h2>
+<p>Мы обжариваем зёрна маленькими партиями и продаём их в течение недели, пока вкус свежий. Название пошло от четвёртой пробной обжарки, после которой рецепт наконец получился.</p>
+<div class="stats">
+<div class="card"><b class="n" data-to="4">4</b><span>обжарки в неделю</span></div>
+<div class="card"><b class="n" data-to="12">12</b><span>сортов зёрен за год</span></div>
+<div class="card"><b class="n" data-to="7">7</b><span>лет на Садовой</span></div>
+</div>
+</section>
+
+<section id="reviews">
+<h2>Что говорят гости</h2>
+<div class="grid rev">
+<div class="card"><b>Марина</b><p>Лучший флэт уайт в районе. Розетки у каждого столика, работала здесь три часа.</p></div>
+<div class="card"><b>Артём</b><p>Бариста подобрал фильтр под мой вкус. Чизкейк заканчивается быстро, приходите пораньше.</p></div>
+<div class="card"><b>Оля</b><p>Тихо, светло, не давят на заказ. Теперь моё место для встреч.</p></div>
+</div>
+<p style="color:var(--mute);font-size:14px">Отзывы демонстрационные.</p>
+</section>
+
+<section id="about">
+<h2>Как нас найти</h2>
+<div class="grid">
+<div class="card"><span>Адрес</span>Садовая, 12, вход со двора <button class="btn alt" id="cp" style="padding:6px 14px;margin-left:8px;font-size:14px">Скопировать</button></div>
+<div class="card"><span>Часы работы</span>Пн–Пт 8:00–21:00, Сб–Вс 10:00–22:00</div>
+<div class="card"><span>Wi-Fi и розетки</span>Есть у каждого столика</div>
+<div class="card"><span>Телефон</span><a href="tel:+79000000000">+7 900 000-00-00</a></div>
+</div>
+</section>
+
+<section id="quiz">
+<h2>Какой напиток вам подойдёт?</h2>
+<div id="qbox"></div>
+</section>
+
+<section id="loyalty">
+<h2>Карта лояльности</h2>
+<p>Шестая чашка кофе — за счёт заведения. Штамп ставится не чаще раза в день, отметьте, когда возьмёте кофе.</p>
+<div class="stamps" id="stamps"></div>
+<button class="btn" id="stampBtn">Поставить штамп</button>
+<p class="msg" id="lm" role="status"></p>
+</section>
+
+<section id="faq">
+<h2>Частые вопросы</h2>
+<details class="card"><summary>Можно с собакой?</summary><div class="dw"><div><p>Да, у нас есть миска с водой и место у окна.</p></div></div></details>
+<details class="card"><summary>Есть молоко без лактозы?</summary><div class="dw"><div><p>Овсяное и безлактозное, без доплаты.</p></div></div></details>
+<details class="card"><summary>Как можно оплатить?</summary><div class="dw"><div><p>Картой, через СБП или наличными.</p></div></div></details>
+<details class="card"><summary>Можно купить зёрна с собой?</summary><div class="dw"><div><p>Да, пакеты по 250 г. Смелем под вашу турку или воронку.</p></div></div></details>
+</section>
+
+<section id="book">
+<h2>Забронировать столик</h2>
+<form id="f" class="card" novalidate>
+<label>Имя<input required name="name" autocomplete="name"></label>
+<label>Телефон<input required name="phone" type="tel" autocomplete="tel" placeholder="+7 900 000-00-00"></label>
+<label>Дата и время<input required name="when" type="datetime-local" id="when"></label>
+<label>Гостей<select name="n"><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5+</option></select></label>
+<button class="btn" type="submit">Отправить заявку</button>
+<p class="msg" id="bm" role="status"></p>
+</form>
+</section>
+</main>
+<div class="wrap"><footer>© Четвёртая обжарка. Демо-сайт для портфолио.</footer></div>
+
+<button class="btn" id="bar"><span id="bn"></span><span id="bs"></span></button>
+
+<dialog id="dlg" aria-labelledby="dt">
+<h2 id="dt">Ваш заказ</h2>
+<div id="ci"></div>
+<div class="tot"><span>Итого</span><span id="tt"></span></div>
+<form id="of" novalidate>
+<label>Имя<input required name="name" autocomplete="name"></label>
+<label>Телефон<input required name="phone" type="tel" autocomplete="tel"></label>
+<label>Когда забрать<select name="w"><option>Как можно скорее</option><option>Через 15 минут</option><option>Через 30 минут</option><option>Через час</option></select></label>
+<div class="row"><button class="btn" type="submit">Оформить заказ</button><button class="btn alt" type="button" id="cl">Закрыть</button></div>
+<p class="msg" id="om" role="status"></p>
+</form>
+</dialog>
+
+<script>
+const M=[
+{c:'Кофе',n:'Эспрессо',d:'Двойной, кислотность средняя',p:150},
+{c:'Кофе',h:1,n:'Флэт уайт',d:'На коровьем или овсяном молоке',p:260},
+{c:'Кофе',n:'Капучино',d:'Плотная пенка, 200 мл',p:230},
+{c:'Кофе',n:'Фильтр-кофе',d:'Зёрна недели, расскажем про вкус',p:230},
+{c:'Напитки',n:'Какао с маршмеллоу',d:'На молоке, густое',p:240},
+{c:'Напитки',n:'Чай с облепихой',d:'Чайник на двоих',p:270},
+{c:'Напитки',n:'Домашний лимонад',d:'Лимон, мята, имбирь',p:220},
+{c:'Десерты',h:1,n:'Чизкейк',d:'Пекарня «Мука», по будням до 16:00',p:290},
+{c:'Десерты',n:'Круассан с миндалём',d:'Свежий, тёплый',p:210},
+{c:'Десерты',n:'Морковный кекс',d:'С кремом на сливочном сыре',p:250}];
+const cats=[...new Set(M.map(x=>x.c))];
+let cat=cats[0],cart={};
+const $=id=>document.getElementById(id);
+(function(){
+  const s=$('shareBtn');
+  s.onclick=async()=>{
+    const data={title:document.title,text:'Загляните в «Четвёртую обжарку»',url:location.href};
+    if(navigator.share){try{await navigator.share(data);return;}catch(e){return;}}
+    try{await navigator.clipboard.writeText(location.href);const old=s.textContent;s.textContent='✓';setTimeout(()=>s.textContent=old,1200);}catch(e){}
+  };
+})();
+(function(){
+  const b=$('burger'),nav=$('mnav');
+  function close(){nav.classList.remove('open');b.setAttribute('aria-expanded','false');b.textContent='☰';}
+  b.onclick=()=>{const open=nav.classList.toggle('open');b.setAttribute('aria-expanded',String(open));b.textContent=open?'✕':'☰';};
+  nav.addEventListener('click',e=>{if(e.target.tagName==='A')close();});
+  document.addEventListener('click',e=>{if(!nav.contains(e.target)&&e.target!==b&&nav.classList.contains('open'))close();});
+})();
+const WA='79000000000'; // номер владельца для заказов в WhatsApp
+const rub=n=>n.toLocaleString('ru-RU')+' ₽';
+const store={get(k){try{return JSON.parse(localStorage.getItem(k))}catch(e){return null}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+
+function tabs(){$('tabs').innerHTML=cats.map(c=>`<button role="tab" aria-selected="${c===cat}" data-c="${c}">${c}</button>`).join('');}
+let query='';
+function list(){
+  const items=M.map((x,i)=>({x,i}));
+  const filtered=query?items.filter(o=>o.x.n.toLowerCase().includes(query)||o.x.d.toLowerCase().includes(query)):items.filter(o=>o.x.c===cat);
+  $('list').innerHTML=filtered.map((o,k)=>`<li style="animation-delay:${k*60}ms"><div class="t">${o.x.n}${o.x.h?'<em class="hit">хит</em>':''}<small>${o.x.d}</small></div><b>${rub(o.x.p)}</b><button class="add" data-i="${o.i}" aria-label="Добавить: ${o.x.n}">+</button></li>`).join('');
+  $('noRes').style.display=filtered.length?'none':'block';
+  $('tabs').style.display=query?'none':'flex';
+}
+const calm=matchMedia('(prefers-reduced-motion:reduce)').matches;
+function pop(el,k){if(!calm)el.animate([{transform:'scale(1)'},{transform:'scale('+k+')'},{transform:'scale(1)'}],{duration:280,easing:'ease-out'});}
+function sum(){let n=0,s=0;for(const i in cart){n+=cart[i];s+=cart[i]*M[i].p}return{n,s}}
+function bar(){const{n,s}=sum();store.set('cart',cart);$('bar').style.display=n?'flex':'none';$('bn').textContent='Заказ: '+n+' поз.';$('bs').textContent=rub(s);}
+function cartView(){
+  const ids=Object.keys(cart);
+  $('ci').innerHTML=ids.length?ids.map(i=>`<div class="ci"><span>${M[i].n}</span><button data-m="${i}" aria-label="Меньше">−</button><span>${cart[i]}</span><button data-p="${i}" aria-label="Больше">+</button><span style="width:70px;text-align:right">${rub(cart[i]*M[i].p)}</span></div>`).join(''):'<p>Корзина пуста.</p>';
+  $('tt').textContent=rub(sum().s);
+}
+$('tabs').onclick=e=>{const c=e.target.dataset.c;if(c){cat=c;tabs();list();}};
+$('msearch').oninput=e=>{query=e.target.value.trim().toLowerCase();list();};
+$('list').onclick=e=>{const i=e.target.dataset.i;if(i!==undefined){cart[i]=(cart[i]||0)+1;bar();pop(e.target,1.35);pop($('bar'),1.04);}};
+$('bar').onclick=()=>{cartView();$('om').style.display='none';$('dlg').showModal();};
+$('cl').onclick=()=>$('dlg').close();
+$('ci').onclick=e=>{const p=e.target.dataset.p,m=e.target.dataset.m;
+  if(p!==undefined)cart[p]++;
+  if(m!==undefined){cart[m]--;if(cart[m]<=0)delete cart[m];}
+  cartView();bar();if(!Object.keys(cart).length)$('dlg').close();};
+function wa(el,text){const a=document.createElement('a');a.className='btn';a.style.cssText='display:block;width:max-content;margin-top:10px;padding:8px 16px;font-size:15px';a.target='_blank';a.rel='noopener';a.textContent='Отправить в WhatsApp';a.href='https://wa.me/'+WA+'?text='+encodeURIComponent(text);el.appendChild(a);}
+function show(el,t,bad){el.textContent=t;el.className='msg'+(bad?' err':'');el.style.display='block';}
+function phoneOk(v){return v.replace(/\D/g,'').length>=10;}
+$('of').onsubmit=e=>{e.preventDefault();const f=e.target,o=$('om');
+  if(!f.name.value.trim()||!phoneOk(f.phone.value))return show(o,'Укажите имя и телефон (минимум 10 цифр).',1);
+  const {n,s}=sum();if(!n)return show(o,'Добавьте позиции в заказ.',1);
+  const txt='Заказ с сайта:\n'+Object.keys(cart).map(i=>M[i].n+' × '+cart[i]).join('\n')+'\nИтого: '+rub(s)+'\nИмя: '+f.name.value+', тел.: '+f.phone.value+'\nКогда: '+f.w.value;
+  const all=store.get('orders')||[];all.push({items:cart,total:s,name:f.name.value,phone:f.phone.value,w:f.w.value,at:Date.now()});store.set('orders',all);
+  store.set('me',{name:f.name.value,phone:f.phone.value});
+  show(o,`Спасибо, ${f.name.value.trim()}! Заказ на ${rub(s)} принят: ${f.w.value.toLowerCase()}.`);
+  wa(o,txt);cart={};bar();$('ci').innerHTML='';$('tt').textContent=rub(0);};
+const now=new Date();now.setMinutes(now.getMinutes()-now.getTimezoneOffset());
+$('when').min=now.toISOString().slice(0,16);
+$('f').onsubmit=e=>{e.preventDefault();const f=e.target,o=$('bm');
+  if(!f.name.value.trim()||!phoneOk(f.phone.value))return show(o,'Укажите имя и телефон (минимум 10 цифр).',1);
+  const d=new Date(f.when.value);
   if(!f.when.value||d<new Date())return show(o,'Выберите время в будущем.',1);
   const h=d.getHours(),wk=d.getDay()%6===0;
   if(h<(wk?10:8)||h>=(wk?22:21))return show(o,`В этот день мы работаем ${wk?'с 10:00 до 22:00':'с 8:00 до 21:00'}.`,1);
